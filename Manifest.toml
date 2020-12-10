@@ -1045,7 +1045,7 @@ uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [[RasterDataSources]]
 deps = ["Dates", "HTTP", "URIs", "ZipFile"]
-git-tree-sha1 = "69d624f2a43d7f5a15c048ee3c5ddf10dcc8b785"
+git-tree-sha1 = "216a67925f148ed033e8eb11728ab0e65707078b"
 repo-rev = "master"
 repo-url = "https://github.com/cesaraustralia/RasterDataSources.jl"
 uuid = "3cb90ccd-e1b6-4867-9617-4276c8b2ca36"
