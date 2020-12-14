@@ -1,24 +1,17 @@
-# First, to specify the directory in which the data is to be downloaded, modify your startup.jl file located in your Julia install directory (e.g. Julia\Julia 1.5.2\etc\julia\startup.jl) to include the following line:
-# test vscode
-
 # ENV["RASTERDATASOURCES_PATH"] = "\MyDataLocation"
-using Interpolations, TimeInterpolatedGeoData, RasterDataSources, Dates, GeoData
+using Interpolations, TimeInterpolatedGeoData, RasterDataSources, Test, Dates, GeoData
 using RasterDataSources: Values, SoilMoisture, Upper, Lower
 using Plots
-using Pipe: @pipe
 
 # download montly mean tmax and tmin data from WorldClim at the 10 m resoltution
 months = 1:12
-layers = (:tavg, :prec)
+layers = (:tmin, :tmax)
 download_raster(WorldClim{Climate}, layers; resolution = "10m", month=1:12)
 
-ser = series(WorldClim{Climate}; layers=layers)
+ser = series(WorldClim{Climate}; layers=(:tavg,))
 ser = set(ser, Ti=(DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)))
-plot(ser[DateTime(2001, 4, 1)][:tavg], clim = (0, 40))
+ser[DateTime(2001, 4, 1)][:tavg] |> plot
 
-agser = GeoData.aggregate(Center(), ser, (10, 10, 1); keys=layers)
-@pipe agser[DateTime(2001, 4, 1)][:tavg] |>
-    plot(_, clim = (0, 40))
 
 # load GrowthMaps and other related packages
 using GrowthMaps, Unitful, UnitfulRecipes, Dates, Setfield, Statistics
@@ -53,28 +46,33 @@ dev = (x -> GrowthMaps.rate(stripparams(growthresponse), x)).(temprange)
 p = plot(temprangeC, dev; label=false, ylabel="growth rate (1/d)", xlab = "temperature")
 
 
-# now run simulation using mean monthly temp and create GeoArray
+# make two band GeoSeries with Time = 1:12 for tmin and tmax
+ser = series(WorldClim{Climate}; layers=(:tmin, :tmax))
+ser = set(ser, Ti=(DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)))
+
+# We use a DimensionalData dim instead of a vector of dates because a
+# Dim can have a step size with irregular spaced data - here 1 Hour.
+dates = Ti(vec([d + h for h in Hour.(0:23), d in index(ser, Ti)]);
+    mode=Sampled(Ordered(), Regular(Hour(1)), Intervals())
+)
+
+# Create Min Max specification for intorpolation
+# times is a tuple specifying the time of tmin and tmax
+# interpmode specifies the interporator
+tempspec = MinMaxSpec((tmin=Hour(5), tmax=Hour(14)), BSpline(Linear()))
+
+#  create an interpolated GeoSeries using the original stacked series, the new dates to interpolate ,
+mmseries = meandayminmaxseries(ser, dates, (), (temp=tempspec,))
+mmseries[DateTime(2001, 1, 1, 6)][:temp]
+mmseries[DateTime(2001, 4, 1, 1)][:temp]
+mmseries[DateTime(2001, 11, 1, 2)][:temp] |> plot
+
+# update growth response to link with the interpolated key
+growthresponse = Layer(:temp, °C, growthmodel)
+
+# now run simulation using interpolated series and create GeoArray for each
 growthrates = mapgrowth(stripparams(growthresponse);
-    series=agser,
-    tspan=DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1))
+    series=mmseries,
+    tspan=DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)
+)
 plot(growthrates[Ti(1)], clim=(0, 0.15))
-
-
-
-
-
-
-
-
-# ##### SMAP
-# smapfolder = "K:/SMAP/SMAP_L4_SM_gph_v4"
-# smapfolder = "K:/SMAP/SMAP_monthly_midpoint_subset"
-# # This does the same as the above
-# days = (1, )
-# seriesall = SMAPseries(smapfolder)
-# series = seriesall[Where(t -> (t >= DateTime(year) && t < DateTime(year)) && dayofmonth(t) in days)]
-#
-# #' We can plot a layer from a file at some date in the series:
-# seriesall[2][:surface_temp] |> plot
-
-####
