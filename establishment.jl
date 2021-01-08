@@ -2,28 +2,47 @@
 # test vscode
 
 # ENV["RASTERDATASOURCES_PATH"] = "\MyDataLocation"
-using Interpolations, TimeInterpolatedGeoData, RasterDataSources, Dates, GeoData
-using RasterDataSources: Values, SoilMoisture, Upper, Lower
+using TimeInterpolatedGeoData
+using Interpolations, RasterDataSources, Dates, GeoData, ArchGDAL
+# using RasterDataSources: Values, SoilMoisture, Upper, Lower 
 using Plots
 using Pipe: @pipe
 
-# download montly mean tmax and tmin data from WorldClim at the 10 m resoltution
+# download monthly mean data from WorldClim at the 10 m resoltution
 months = 1:12
 layers = (:tavg, :prec)
-download_raster(WorldClim{Climate}, layers; resolution = "10m", month=1:12)
+getraster(WorldClim{Climate}, layers, months, "10m")
+getraster(WorldClim{Climate}, :wind; month=1, res="10m") 
+ser_immut = series(WorldClim{Climate}, layers; res="10m")
 
-ser = series(WorldClim{Climate}; layers=layers)
-ser = set(ser, Ti=(DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)))
+dates = (DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1))
+ser = [GeoStack(ser_immut[i][:tavg], float(ser_immut[i][:prec]); 
+    keys = (:tavg, :prec)) for i = 1:12] 
+ser = GeoSeries(ser, (Ti(dates),))
+for i in 1:12    
+    ser[i][:prec] .= map(x -> x < 0 ? 0.0 : x, ser[i][:prec])
+end
+
+map(x -> x < 0 ? 0.0 : float(x), ser1[i][:prec]).data
+plot(ser[1][:prec])
+
 plot(ser[DateTime(2001, 4, 1)][:tavg], clim = (0, 40))
 
 agser = GeoData.aggregate(Center(), ser, (10, 10, 1); keys=layers)
+
 @pipe agser[DateTime(2001, 4, 1)][:tavg] |>
-    plot(_, clim = (0, 40))
+    plot(_, )
+
+@pipe agser[DateTime(2001, 4, 1)][:prec] |>
+    plot(_, )   
+
+agser[DateTime(2001, 4, 1)][:tavg].data
+agser[DateTime(2001, 4, 1)][:prec].data
 
 # load GrowthMaps and other related packages
 using GrowthMaps, Unitful, UnitfulRecipes, Dates, Setfield, Statistics
 using GeoData, ArchGDAL, NCDatasets, ModelParameters
-using Unitful: °C, K, cal, mol
+using Unitful: °C, K, cal, mol, mm
 # using HDF5 # for SMAP
 
 # Set SchoolfieldIntrinsicGrowth model parameters including fields for units and bounds for fitting
@@ -54,12 +73,35 @@ p = plot(temprangeC, dev; label=false, ylabel="growth rate (1/d)", xlab = "tempe
 
 
 # now run simulation using mean monthly temp and create GeoArray
-growthrates = mapgrowth(stripparams(growthresponse);
+modelkwargs = (
     series=agser,
-    tspan=DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1))
+    tspan=DateTime(2001, 1, 1):Year(1):DateTime(2001, 12, 1),
+);
+
+growthrates = mapgrowth(stripparams(growthresponse);
+    modelkwargs...)
 plot(growthrates[Ti(1)], clim=(0, 0.15))
 
+# incorporate stress
+coldthresh = Param(ustrip(K, 13.0°C); units=K, bounds=(-10, 20))
+coldmort = Param(-0.2; units=K^-1, bounds=(-1, 0))
+coldstress = Layer(:tavg, °C, LowerStress(coldthresh, coldmort))
 
+heatthresh = 40.0°C |> K
+heatmort = Param(-0.02; units=K^-1, bounds=(-1, 0))
+heatstress = Layer(:tavg, °C, UpperStress(heatthresh, heatmort))
+
+drythresh = Param(100.0; bounds=(0, 1000))
+drymort = Param(-0.0001;  bounds=(-1, 0))
+drystress = Layer(:prec, LowerStress(drythresh, drymort));
+
+model = stripparams((growthresponse, coldstress, heatstress, ))
+
+growthrates = mapgrowth(model; modelkwargs...)
+
+plot(growthrates[Ti(1)], axis=false)
+
+plot(growthrates[Ti(1)], clim=(0, 0.15), axis=false)
 
 
 
