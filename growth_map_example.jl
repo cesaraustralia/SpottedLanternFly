@@ -1,43 +1,3 @@
-# First, to specify the directory in which the data is to be downloaded, modify your startup.jl file located in your Julia install directory (e.g. Julia\Julia 1.5.2\etc\julia\startup.jl) to include the following line:
-# test vscode
-
-# ENV["RASTERDATASOURCES_PATH"] = "\MyDataLocation"
-using TimeInterpolatedGeoData
-using Interpolations, RasterDataSources, Dates, GeoData, ArchGDAL
-# using RasterDataSources: Values, SoilMoisture, Upper, Lower 
-using Plots
-using Pipe: @pipe
-
-# download monthly mean data from WorldClim at the 10 m resoltution
-months = 1:12
-layers = (:tavg, :prec)
-getraster(WorldClim{Climate}, layers, months, "10m")
-getraster(WorldClim{Climate}, :wind; month=1, res="10m") 
-ser_immut = series(WorldClim{Climate}, layers; res="10m")
-
-dates = (DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1))
-ser = [GeoStack(ser_immut[i][:tavg], float(ser_immut[i][:prec]); 
-    keys = (:tavg, :prec)) for i = 1:12] 
-ser = GeoSeries(ser, (Ti(dates),))
-for i in 1:12    
-    ser[i][:prec] .= map(x -> x < 0 ? 0.0 : x, ser[i][:prec])
-end
-
-map(x -> x < 0 ? 0.0 : float(x), ser1[i][:prec]).data
-plot(ser[1][:prec])
-
-plot(ser[DateTime(2001, 4, 1)][:tavg], clim = (0, 40))
-
-agser = GeoData.aggregate(Center(), ser, (10, 10, 1); keys=layers)
-
-@pipe agser[DateTime(2001, 4, 1)][:tavg] |>
-    plot(_, )
-
-@pipe agser[DateTime(2001, 4, 1)][:prec] |>
-    plot(_, )   
-
-agser[DateTime(2001, 4, 1)][:tavg].data
-agser[DateTime(2001, 4, 1)][:prec].data
 
 # load GrowthMaps and other related packages
 using GrowthMaps, Unitful, UnitfulRecipes, Dates, Setfield, Statistics
@@ -100,23 +60,5 @@ model = stripparams((growthresponse, coldstress, heatstress, ))
 growthrates = mapgrowth(model; modelkwargs...)
 
 plot(growthrates[Ti(1)], axis=false)
-
 plot(growthrates[Ti(1)], clim=(0, 0.15), axis=false)
-
-
-
-
-
-
-# ##### SMAP
-# smapfolder = "K:/SMAP/SMAP_L4_SM_gph_v4"
-# smapfolder = "K:/SMAP/SMAP_monthly_midpoint_subset"
-# # This does the same as the above
-# days = (1, )
-# seriesall = SMAPseries(smapfolder)
-# series = seriesall[Where(t -> (t >= DateTime(year) && t < DateTime(year)) && dayofmonth(t) in days)]
-#
-# #' We can plot a layer from a file at some date in the series:
-# seriesall[2][:surface_temp] |> plot
-
-####
+    

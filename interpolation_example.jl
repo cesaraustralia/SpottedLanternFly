@@ -1,16 +1,12 @@
 # ENV["RASTERDATASOURCES_PATH"] = "\MyDataLocation"
 using Interpolations, TimeInterpolatedGeoData, RasterDataSources, Test, Dates, GeoData
-using RasterDataSources: Values, SoilMoisture, Upper, Lower
 using Plots
 
 # download montly mean tmax and tmin data from WorldClim at the 10 m resoltution
 months = 1:12
 layers = (:tmin, :tmax)
-download_raster(WorldClim{Climate}, layers; resolution = "10m", month=1:12)
-
-ser = series(WorldClim{Climate}; layers=(:tavg,))
-ser = set(ser, Ti=(DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)))
-ser[DateTime(2001, 4, 1)][:tavg] |> plot
+getraster(WorldClim{Climate}, layers; res = "10m", month=1:12)
+ser_immut = series(WorldClim{Climate}, layers; res="10m")
 
 
 # load GrowthMaps and other related packages
@@ -43,12 +39,12 @@ GrowthMaps.rate(stripparams(growthresponse), K(20.0°C))
 temprangeC = collect(1.0:1.0:40.0)°C
 temprange = K.(temprangeC)
 dev = (x -> GrowthMaps.rate(stripparams(growthresponse), x)).(temprange)
-p = plot(temprangeC, dev; label=false, ylabel="growth rate (1/d)", xlab = "temperature")
+pl = plot(temprangeC, dev; label=false, ylabel="growth rate (1/d)", xlab = "temperature")
 
 
 # make two band GeoSeries with Time = 1:12 for tmin and tmax
-ser = series(WorldClim{Climate}; layers=(:tmin, :tmax))
-ser = set(ser, Ti=(DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)))
+ser = series(WorldClim{Climate}, layers; res="10m")
+ser = DimensionalData.set(ser, Ti=(DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)))
 
 # We use a DimensionalData dim instead of a vector of dates because a
 # Dim can have a step size with irregular spaced data - here 1 Hour.
