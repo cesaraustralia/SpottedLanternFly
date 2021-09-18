@@ -1,4 +1,4 @@
-# ENV["RASTERDATASOURCES_PATH"] = "\MyDataLocation"
+ENV["RASTERDATASOURCES_PATH"] = "C:\\RasterData"
 # load GrowthMaps and other related packages
 using GeoData, ArchGDAL, NCDatasets, ModelParameters
 using GrowthMaps, Unitful, UnitfulRecipes, Dates, Setfield, Statistics
