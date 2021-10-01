@@ -39,7 +39,9 @@ dev = (x -> GrowthMaps.rate(stripparams(growthresponse), x)).(temprange)
 pl = plot(temprangeC, dev; label=false, ylabel="growth rate (1/d)", xlab = "temperature")
 
 # make two band GeoSeries with Time = 1:12 for tmin and tmax
-ser = view(GeoSeries(WorldClim{Climate}, layerkeys; month=1:12, res="10m"), Band(1))
+ser = map(GeoSeries(WorldClim{Climate}, layerkeys; month=1:12, res="10m")) do x
+    view(x, Band(1))
+end
 ser = DimensionalData.set(ser, :month => Ti(DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)))
 
 # We use a DimensionalData dim instead of a vector of dates because a
@@ -63,5 +65,4 @@ growthrates = mapgrowth(stripparams(growthresponse);
     series=mmseries,
     tspan=DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)
 )
-pyplot()
-plot(growthrates[Ti(1:3:12)], clim=(0, 0.15))
+plot(growthrates[Ti(1:3:12), Band(1)], clim=(0, 0.15))
