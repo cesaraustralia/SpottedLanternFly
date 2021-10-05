@@ -1,4 +1,4 @@
-ENV["RASTERDATASOURCES_PATH"] = "C:/RasterData"
+# ENV["RASTERDATASOURCES_PATH"] = "C:/RasterData"
 using Interpolations, TimeInterpolatedGeoData, RasterDataSources, Test, Dates, GeoData
 using Plots, Unitful, GrowthMaps
 # load GrowthMaps and other related packages
@@ -48,19 +48,36 @@ ser = DimensionalData.set(ser, :month => Ti(DateTime(2001, 1, 1):Month(1):DateTi
 # Dim can have a step size with irregular spaced data - here 1 Hour.
 dates = [d + h for d in index(ser, Ti) for h in Hour.(0:23) ]
 
+# test interpolation visually
+function plot_interpolation(interpolator)
+    mmseries = meanday_minmaxseries(ser, dates; step=Hour(1), mm_interpolators=(temp=interpolator,))
+    t = 1:(24*12)
+    tT = [mmseries[i][:temp][1861, 720, 1] for i = t]
+    pl = plot(t,  tT; ylims=(0, 40))
+    # We need to add 1 for the first hour to be index 1
+    # Then add the hour offset we using in the interpolator
+    tmintimes = (0:11)*24 .+1 .+5
+    tmaxtimes = (0:11)*24 .+1 .+14
+    plot!(pl, tmintimes, [ser[i][(:tmin)][1861, 720, 1] for i = 1:12])
+    plot!(pl, tmaxtimes, [ser[i][(:tmax)][1861, 720, 1] for i = 1:12])
+end
 # Create Min Max interpolator 
 # times is a tuple specifying the time of tmin and tmax
-tempinterpolator = MinMaxInterpolator((tmin=Hour(5), tmax=Hour(14)), BSpline(Linear()))
+linear_temp_interpolator = MinMaxInterpolator((tmin=Hour(5), tmax=Hour(14)), BSpline(Linear()))
+cos_temp_interpolator = MinMaxInterpolator((tmin=Hour(5), tmax=Hour(14)), BSpline(Cosine()))
+hyptan_temp_interpolator = MinMaxInterpolator((tmin=Hour(5), tmax=Hour(14)), BSpline(HypTan()))
+plot_interpolation(linear_temp_interpolator)
+plot_interpolation(cos_temp_interpolator)
+plot_interpolation(hyptan_temp_interpolator)
+# Using a parameter for hyptan
+hyp = HypTan{1.0}()
+hyptan2_temp_interpolator = MinMaxInterpolator((tmin=Hour(5), tmax=Hour(14)), BSpline(hyp))
+plot_interpolation(hyptan2_temp_interpolator)
+
+tempinterpolator = linear_temp_interpolator
 
 # create an interpolated GeoSeries using the original stacked series, the new dates to interpolate ,
 mmseries = meanday_minmaxseries(ser, dates; step=Hour(1), mm_interpolators=(temp=tempinterpolator,))
-
-# test interpolation @rafaqz
-t = 1:(24*12)
-tT = [mmseries[i][:temp][1861, 720, 1] for i = t]
-pl = plot(t,  tT)
-plot!(pl, (0:11)*24, [ser[i][(:tmin)][1861, 720, 1] for i = 1:12])
-plot!(pl, (0:11)*24, [ser[i][(:tmax)][1861, 720, 1] for i = 1:12])
 
 
 mmseries[At(DateTime(2001, 11, 1, 2))][:temp] |> plot
