@@ -50,7 +50,7 @@ dates = [d + h for d in index(ser, Ti) for h in Hour.(0:23) ]
 
 # Create Min Max interpolator 
 # times is a tuple specifying the time of tmin and tmax
-tempinterpolator = MinMaxInterpolator((tmin=Hour(5), tmax=Hour(14)), BSpline(Cosine()))
+tempinterpolator = MinMaxInterpolator((tmin=Hour(5), tmax=Hour(14)), BSpline(Linear()))
 
 # create an interpolated GeoSeries using the original stacked series, the new dates to interpolate ,
 mmseries = meanday_minmaxseries(ser, dates; step=Hour(1), mm_interpolators=(temp=tempinterpolator,))
