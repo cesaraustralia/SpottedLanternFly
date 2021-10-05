@@ -1,4 +1,4 @@
-# ENV["RASTERDATASOURCES_PATH"] = "\MyDataLocation"
+ENV["RASTERDATASOURCES_PATH"] = "C:/RasterData"
 using Interpolations, TimeInterpolatedGeoData, RasterDataSources, Test, Dates, GeoData
 using Plots, Unitful, GrowthMaps
 # load GrowthMaps and other related packages
@@ -50,10 +50,18 @@ dates = [d + h for d in index(ser, Ti) for h in Hour.(0:23) ]
 
 # Create Min Max interpolator 
 # times is a tuple specifying the time of tmin and tmax
-tempinterpolator = MinMaxInterpolator((tmin=Hour(5), tmax=Hour(14)), BSpline(Linear()))
+tempinterpolator = MinMaxInterpolator((tmin=Hour(5), tmax=Hour(14)), BSpline(Cosine()))
 
 # create an interpolated GeoSeries using the original stacked series, the new dates to interpolate ,
 mmseries = meanday_minmaxseries(ser, dates; step=Hour(1), mm_interpolators=(temp=tempinterpolator,))
+
+# test interpolation @rafaqz
+t = 1:(24*12)
+tT = [mmseries[i][:temp][1861, 720, 1] for i = t]
+pl = plot(t,  tT)
+plot!(pl, (0:11)*24, [ser[i][(:tmin)][1861, 720, 1] for i = 1:12])
+plot!(pl, (0:11)*24, [ser[i][(:tmax)][1861, 720, 1] for i = 1:12])
+
 
 mmseries[At(DateTime(2001, 11, 1, 2))][:temp] |> plot
 

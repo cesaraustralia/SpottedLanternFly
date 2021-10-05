@@ -609,9 +609,9 @@ version = "0.5.0"
 
 [[InlineStrings]]
 deps = ["Parsers"]
-git-tree-sha1 = "dad6d64484ecb4e22879fdad0f1e5b9f9d9abdd0"
+git-tree-sha1 = "19cb49649f8c41de7fea32d089d37de917b553da"
 uuid = "842dd82b-1e85-43dc-bf29-5d0ee9dffc48"
-version = "1.0.0"
+version = "1.0.1"
 
 [[Interact]]
 deps = ["CSSUtil", "InteractBase", "JSON", "Knockout", "Observables", "OrderedCollections", "Reexport", "WebIO", "Widgets"]
@@ -1309,6 +1309,14 @@ version = "0.1.1"
 [[Test]]
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[[TimeInterpolatedGeoData]]
+deps = ["Dates", "GeoData", "Interpolations", "OffsetArrays", "RasterDataSources", "StaticArrays"]
+git-tree-sha1 = "88ed089936a948f6851a49395cf11c51195bc9d2"
+repo-rev = "master"
+repo-url = "https://github.com/cesaraustralia/TimeInterpolatedGeoData.jl"
+uuid = "eadd464d-f028-457a-8364-d1387d0d798f"
+version = "0.1.0"
 
 [[TranscodingStreams]]
 deps = ["Random", "Test"]

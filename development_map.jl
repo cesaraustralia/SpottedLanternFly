@@ -4,7 +4,7 @@ using GeoData, ArchGDAL, NCDatasets, ModelParameters
 using GrowthMaps, Unitful, UnitfulRecipes, Dates, Setfield, Statistics
 using StaticArrays
 
-using RasterDataSources, Dates, GeoData, ArchGDAL
+using RasterDataSources, Dates, GeoData
 using Plots
 using Pipe: @pipe
 using DimensionalData: set
@@ -15,20 +15,26 @@ using GeoData: Between
 
 include( "functions.jl")
 
-agfact = 1 # aggregation factor (set higher for faster run time)
+agfact = 10 # aggregation factor (set higher for faster run time)
 
 # download monthly mean data from WorldClim at the 10 m resoltution
 months = 1:12
-getraster(WorldClim{Climate}, :tavg, months, "10m")
-ser_tavg = series(WorldClim{Climate}, (:tavg,); res="10m")
-ser_tavg = set(ser_tavg, Ti=(DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)))
+# make two band GeoSeries with Time = 1:12 for tmin and tmax
+ser = map(GeoSeries(WorldClim{Climate}, layerkeys; month=1:12, res="10m")) do x
+    view(x, Band(1))
+end
+
+ser_tavg = GeoSeries(WorldClim{Climate}, :tavg, month=1:12, res="10m")
+ser_tavg = DimensionalData.set(ser_tavg, :month => Ti(DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)))
 ser_tavg = GeoData.aggregate(Center(), ser_tavg, (agfact, agfact, 1); keys=(:tavg,))
 
 
 # make two band GeoSeries with Time = 1:12 for tmin and tmax
-ser_tmntmx = series(WorldClim{Climate}, (:tmin, :tmax); res="10m")
-ser_tmntmx = set(ser_tmntmx, Ti=(DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)))
-ser_tmntmx = GeoData.aggregate(Center(), ser_tmntmx, (agfact, agfact, 1); 
+ser_tmntmx = map(GeoSeries(WorldClim{Climate}, (:tmin, :tmax); month=1:12, res="10m")) do x
+    view(x, Band(1))
+end
+ser_tmntmx = DimensionalData.set(ser_tmntmx, :month => Ti(DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)))
+ser_tmntmx = GeoData.aggregate(Center(), ser_tmntmx, 10; 
     keys=(:tmin, :tmax))
 
 # We use a DimensionalData dim instead of a vector of dates because a
@@ -38,25 +44,47 @@ dates = Ti(vec([d + h for h in Hour.(0:23), d in index(ser_tmntmx, Ti)]);
 )
 
 
+# We use a DimensionalData dim instead of a vector of dates because a
+# Dim can have a step size with irregular spaced data - here 1 Hour.
+dates = [d + h for d in index(ser_tmntmx, Ti) for h in Hour.(0:23) ]
+
+
 # Create Min Max specification for intorpolation
 # times is a tuple specifying the time of tmin and tmax
 # interpmode specifies the interporator
 
-using TimeInterpolatedGeoData: chooseinterparrays, MinMaxFracs, calcfrac, Cosine
-# !!!!!!!!!!!!! BROKEN (SEE PLOT) !!!!!!!!!!!!!
-tempspec = MinMaxSpec((tmin=Hour(1), tmax=Hour(25)), BSpline(Cosine()))
-tempspec = MinMaxSpec((tmin=Hour(1), tmax=Hour(24)), BSpline(Cosine()))
+#######new
+# Create Min Max interpolator 
+# times is a tuple specifying the time of tmin and tmax
+tempinterpolator = MinMaxInterpolator((tmin=Hour(5), tmax=Hour(14)), BSpline(Linear()))
 
-#  create an interpolated GeoSeries using the original stacked series, the new dates to interpolate ,
-ser_mm = meandayminmaxseries(ser_tmntmx, dates, (), (temp=tempspec,))
-# ser_mm[DateTime(2001, 11, 1, 2)][:temp] |> plot
+# create an interpolated GeoSeries using the original stacked series, the new dates to interpolate ,
+mmseries = meanday_minmaxseries(ser_tmntmx, dates; step=Hour(1), mm_interpolators=(temp=tempinterpolator,))
+
+mmseries[At(DateTime(2001, 11, 1, 2))][:temp] |> plot
+
+# update growth response to link with the interpolated key
+growthresponse = Layer(:temp, °C, growthmodel)
+
+# now run simulation using interpolated series and create GeoArray for each
+growthrates = mapgrowth(stripparams(growthresponse);
+    series=mmseries,
+    tspan=DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)
+)
+plot(growthrates[Ti(1:3:12), Band(1)], clim=(0, 0.15))
 
 
-# t = 1:(24*12)
-# tT = [ser_mm[i][:temp][1861, 720, 1] for i = t]
-# pl = plot(t,  tT)
-# plot!(pl, (0:11)*24, [ser_tmntmx[i][(:tmin)][1861, 720, 1] for i = 1:12])
-# plot!(pl, (0:11)*24, [ser_tmntmx[i][(:tmax)][1861, 720, 1] for i = 1:12])
+######new end
+
+# test interpolation @rafaqz
+ser_mm = mmseries
+t = 1:(24*12)
+tT = [ser_mm[i][:temp][186, 72, 1] for i = t]
+pl = plot(t,  tT)
+plot!(pl, (0:11)*24, [ser_tmntmx[i][(:tmin)][186, 72, 1] for i = 1:12])
+plot!(pl, (0:11)*24, [ser_tmntmx[i][(:tmax)][186, 72, 1] for i = 1:12])
+
+#################### did not get passed here ##############
 
 
 tempspec = MinMaxSpec((tmin=Hour(5), tmax=Hour(14)), BSpline(Linear()))
