@@ -11,69 +11,74 @@ using DimensionalData: set
 using Interpolations, TimeInterpolatedGeoData
 using DataFrames, CSV
 
-using GeoData: Between
+using GeoData: Between, Y 
 
 include( "functions.jl")
 
-agfact = 10 # aggregation factor (set higher for faster run time)
+agfact = 1 # aggregation factor (set higher for faster run time)
 
 # download monthly mean data from WorldClim at the 10 m resoltution
 months = 1:12
 # make two band GeoSeries with Time = 1:12 for tmin and tmax
-ser_tavg = map(GeoSeries(WorldClim{Climate}, :tavg; month=1:12, res="10m")) do x
+ser_tavg = map(GeoSeries(WorldClim{Climate}, (:tavg,); month=1:12, res="10m")) do x
     view(x, Band(1))
 end
 ser_tavg = DimensionalData.set(ser_tavg, :month => Ti(DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)))
-# aggregate
-# ser_tavg = GeoData.aggregate(Center(), ser_tavg, (agfact, agfact, 1); keys=(:tavg,))
 
-
-# make two band GeoSeries with Time = 1:12 for tmin and tmax
 ser_tmntmx = map(GeoSeries(WorldClim{Climate}, (:tmin, :tmax); month=1:12, res="10m")) do x
     view(x, Band(1))
 end
 ser_tmntmx = DimensionalData.set(ser_tmntmx, :month => Ti(DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)))
-#aggregate 
-# ser_tmntmx = GeoData.aggregate(Center(), ser_tmntmx, 10; keys=(:tmin, :tmax))
 
-# We use a DimensionalData dim instead of a vector of dates because a
-# Dim can have a step size with irregular spaced data - here 1 Hour.
-dates = [d + h for d in index(ser_tmntmx, Ti) for h in Hour.(0:23) ]
+# aggregate
+if agfact != 1
+    ser_tavg   = GeoData.aggregate(Center(), ser_tavg, agfact)
+    ser_tmntmx = GeoData.aggregate(Center(), ser_tmntmx, agfact)
+end
 
-# Create Min Max specification for intorpolation
-# times is a tuple specifying the time of tmin and tmax
-# interpmode specifies the interporator
-
-#######new
-# Create Min Max interpolator 
-# times is a tuple specifying the time of tmin and tmax
-tempinterpolator = MinMaxInterpolator((tmin=Hour(1), tmax=Hour(23)), BSpline(Linear()))
-
-# create an interpolated GeoSeries using the original stacked series, the new dates to interpolate ,
-ser_mm = meanday_minmaxseries(ser_tmntmx, dates; step=Hour(1), mm_interpolators=(temp=tempinterpolator,))
+tempfunction = "tavg"
+devadjust = true
+# ############################# START MAIN LOOP #################################
+# for tempfunction = ("tavg", "mm")
+#     for devadjust = (true, false)
 
 
+if tempfunction == "tavg"
+    ser = ser_tavg
+end
 
+if tempfunction == "mm"
+    # We use a DimensionalData dim instead of a vector of dates because a
+    # Dim can have a step size with irregular spaced data - here 1 Hour.
+    dates = [d + h for d in index(ser_tmntmx, Ti) for h in Hour.(0:23) ]
 
-# test interpolation @rafaqz
-t = 1:(24*12)
-tT = [ser_mm[i][:temp][1861, 720, 1] for i = t]
-pl = plot(t,  tT)
-plot!(pl, (0:11)*24, [ser_tmntmx[i][(:tmin)][1861, 720, 1] for i = 1:12])
-plot!(pl, (0:11)*24, [ser_tmntmx[i][(:tmax)][1861, 720, 1] for i = 1:12])
+    # Create Min Max specification for intorpolation
+    # times is a tuple specifying the time of tmin and tmax
+    # interpmode specifies the interporator
 
-#################### did not get passed here ##############
+    #######new
+    # Create Min Max interpolator 
+    # times is a tuple specifying the time of tmin and tmax
+    tempinterpolator = MinMaxInterpolator((tmin=Hour(5), tmax=Hour(14)), BSpline(Linear()))
 
+    # create an interpolated GeoSeries using the original stacked series, the new dates to interpolate ,
+    ser = meanday_minmaxseries(ser_tmntmx, dates; step=Hour(1), mm_interpolators=(temp=tempinterpolator,))
 
-tempspec = MinMaxSpec((tmin=Hour(5), tmax=Hour(14)), BSpline(Linear()))
-tempfracs = MinMaxFracs(tempspec, Day(1), 0/24)
-tempfracs.indices == (tmax=0, tmin=1)
-tempfracs.frac == 10/15
-tempfracs.interpmode == BSpline(Linear())
+    # test interpolation visually
+    coord = (1861/agfact, 720/agfact, 1) #random point with data
+    coord = convert(Tuple{Int, Int, Int}, round.(coord))
+    t = 1:(24*12)
+    tT = [ser[i][:temp][coord...] for i = t]
+    pl = plot(t,  tT; ylims=(0, 40))
+    # We need to add 1 for the first hour to be index 1
+    # Then add the hour offset we using in the interpolator
+    tmintimes = (0:11)*24 .+1 .+5
+    tmaxtimes = (0:11)*24 .+1 .+14
+    plot!(pl, tmintimes, [ser_tmntmx[i][(:tmin)][coord...] for i = 1:12])
+    plot!(pl, tmaxtimes, [ser_tmntmx[i][(:tmax)][coord...] for i = 1:12])
 
-tempfracs = MinMaxFracs(tempspec, Day(1), 5/24)
-tempfracs.indices == (tmin=1, tmax=1)
-tempfracs.frac == 0.0
+end
+
 
 # Kreitman 2020 parameters (Briere and Linear fitted)
 l1 = BriereModel(0.000011, 0.9335, 13.05, 43.81)
@@ -103,8 +108,9 @@ multi = MultiRate((e, l1, l2, l3, l4,))
 # compare dev rate of L1-L4 at 20C to Park 2009
 park2009 = 1 ./ [18.8, 20.9, 20.8, 22.2] 
 kreit2020 = GrowthMaps.rate.(Ref(multi), 20)[2:5]
-adjustdev = park2009 ./ kreit2020
-
+ 
+adjustdev = devadjust ? park2009 ./ kreit2020 : [1.0;1.0;1.0;1.0]
+    
 # adjust development by park factor
 l1 = BriereModel(adjustdev[1]*0.000011, 0.9335, 13.05, 43.81)
 l2 = BriereModel(adjustdev[2]*0.000062, 1.9766, 12.43, 35.58)
@@ -121,7 +127,7 @@ pl = plot(temp, mrates)
 
 
 stagenames = (:egg,:L1,:L2,:L3,:L4)
-CSV.write("dataout/dev_temp_response.csv", 
+CSV.write("dataout/dev_temp_response_devadjust$devadjust.csv", 
     DataFrame([temp mrates], [:temp, stagenames...]))
 
 
@@ -131,26 +137,20 @@ CSV.write("dataout/dev_temp_response.csv",
 kwargs = 
     (tspan=DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1),
     initval=SA[0.0, 0.0, 0.0, 0.0, 0.0]) 
-
-devout_tavg = mapgrowth(Layer(:tavg, multi); 
-    series=ser_tavg,
-    kwargs...
+tempkey = tempfunction == "tavg" ? :tavg : :temp 
+devout = mapgrowth(Layer(tempkey, multi); 
+        series=ser,
+        kwargs...
 );
 
-devout_mm = mapgrowth(Layer(:temp, multi); 
-    series=ser_mm,
-    kwargs...
-);
-
-
-plot(map(x -> x[1], devout_tavg[Ti(8)]))
-plot(map(x -> x[1], devout_mm[Ti(8)]))
-
-
+plot(map(x -> x[1], devout[Ti(8)]))
 # Survival model fitted in R using Kreitman2020
-pars = CSV.read("../../R/plots/poisson_survival_model_coefficients.csv", DataFrame)
-const p = pars.val
-ep = CSV.read("../../R/plots/poisson_survival_model_coefficients_egg.csv",
+# folder="C:/Users/james/Dropbox (cesar)/cesar Team Folder/_Customer Project Files/2003 APBSF/Completed projects/2003CR2 SLF/2. Milestones/Modelling/R/plots/"
+folder = "../../R/plots/"
+
+pars = CSV.read(folder*"poisson_survival_model_coefficients.csv", DataFrame)
+p = pars.val
+ep = CSV.read(folder*"poisson_survival_model_coefficients_egg.csv",
     DataFrame)
 
 
@@ -174,16 +174,12 @@ pl = plot(temp, mrates, ylim=(0,0.2))
 CSV.write("dataout/hazard_temp_response.csv", 
     DataFrame([temp mrates], [:temp, stagenames...]))
 
-hazout_tavg = mapgrowth(Layer(:tavg, multihaz); 
-    series=ser_tavg,
+hazout = mapgrowth(Layer(tempkey, multihaz); 
+    series=ser,
     kwargs...
 );
 
-hazout_mm = mapgrowth(Layer(:temp, multihaz); 
-    series=ser_mm,
-    kwargs...
-);
-
+plot(map(x -> x[1], hazout[Ti(8)]))
 
 function getstagerate(rates, stage) 
     # add modulo function for stage looping 
@@ -201,7 +197,7 @@ function getstagerate(rates, stage)
     end
 end
 
-plot(map(x -> x[2], hazout_mm[Ti(6)]))
+plot(map(x -> x[2], hazout[Ti(6)]))
 
 function getstagehaz(devout, hazout, startdate)
     stage = map(x -> x[1]*0.0, devout)
@@ -227,50 +223,34 @@ function getstagehaz(devout, hazout, startdate)
 end
 
 # run simulation for north and south hemishere starting from winter
-stage_tavg,  haz_tavg  = getstagehaz(devout_tavg, hazout_tavg, DateTime(2001,1,1))
-stage_tavgs, haz_tavgs = getstagehaz(devout_tavg, hazout_tavg, DateTime(2001,7,1))
-stage_mm,  haz_mm  = getstagehaz(devout_mm, hazout_mm, DateTime(2001,1,1))
-stage_mms, haz_mms = getstagehaz(devout_mm, hazout_mm, DateTime(2001,7,1))
+stage,   haz   = getstagehaz(devout, hazout, DateTime(2001,1,1))
+stage_s, haz_s = getstagehaz(devout, hazout, DateTime(2001,7,1))
 
 
 # shift months 
-stage_tavg[Lat(Between(-90, 0)), Ti(1:6)]=stage_tavgs[Lat(Between(-90, 0)), Ti(7:12)]
-stage_tavg[Lat(Between(-90, 0)), Ti(7:12)]=stage_tavgs[Lat(Between(-90, 0)), Ti(1:6)]
-haz_tavg[Lat(Between(-90, 0)), Ti(1:6)]   = haz_tavgs[Lat(Between(-90, 0)), Ti(7:12)]
-haz_tavg[Lat(Between(-90, 0)), Ti(7:12)]  = haz_tavgs[Lat(Between(-90, 0)), Ti(1:6)]
-
-stage_mm[Lat(Between(-90, 0)), Ti(1:6)]   = stage_mms[Lat(Between(-90, 0)), Ti(7:12)]
-stage_mm[Lat(Between(-90, 0)), Ti(7:12)]  = stage_mms[Lat(Between(-90, 0)), Ti(1:6)]
-haz_mm[Lat(Between(-90, 0)), Ti(1:6)]   = haz_mms[Lat(Between(-90, 0)), Ti(7:12)]
-haz_mm[Lat(Between(-90, 0)), Ti(7:12)]  = haz_mms[Lat(Between(-90, 0)), Ti(1:6)]
+stage[Y(Between(-90, 0)), Ti(1:6)]  = stage_s[Y(Between(-90, 0)), Ti(7:12)]
+stage[Y(Between(-90, 0)), Ti(7:12)] = stage_s[Y(Between(-90, 0)), Ti(1:6)]
+haz[Y(Between(-90, 0)), Ti(1:6)]    = haz_s[Y(Between(-90, 0)), Ti(7:12)]
+haz[Y(Between(-90, 0)), Ti(7:12)]   = haz_s[Y(Between(-90, 0)), Ti(1:6)]
 
 
 for m = 1:12
     ms = string(m, pad=2)
-    write("dataout/stage_tavg$ms.grd", GRDarray, stage_tavg[Ti(m)])
-    write("dataout/haz_tavg$ms.grd"  , GRDarray, haz_tavg[Ti(m)])
-    write("dataout/stage_mm$ms.grd"  , GRDarray, stage_mm[Ti(m)])
-    write("dataout/haz_mm$ms.grd"    , GRDarray, haz_mm[Ti(m)])
+    GeoData.write("dataout/stage_agfact$(agfact)_tempfun$(tempfunction)_devadjust$(devadjust)_mon$ms.grd", stage[Ti(m)])
+    write("dataout/haz_agfact$(agfact)_tempfun$(tempfunction)_devadjust$(devadjust)_mon$ms.grd", haz[Ti(m)])
 end
 
-plot(haz_mms[Ti(7)])
-plot(map(x -> exp(-(x[1])), hazout_mm[Ti(1)]))
+plot(haz_s[Ti(7)])
+plot(map(x -> exp(-(x[1])), hazout[Ti(1)]))
 
-aust = Lon(Between(113, 153)), Lat(Between(-43, -11))
-usa = Lon(Between(-125.0, -66.96)), Lat(Between(20.0, 50))
+aust = X(Between(113, 153)), Y(Between(-43, -11))
+usa = X(Between(-125.0, -66.96)), Y(Between(20.0, 50))
 
 l = @layout grid(1,2)
-plot(plot(haz_mms[Ti(7), aust...]), plot(haz_mms[Ti(7), aust...]), layout=l)
+plot(plot(haz_s[Ti(7), usa...]), plot(haz_s[Ti(7), aust...]), layout=l)
 
+plot(exp.(-haz[Ti(8), usa...]))
 
-## load rainfall 
-# ser_immut = series(WorldClim{Climate}, (:tavg,:prec); res="10m")
-# dates = (DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1))
-# ser = [GeoStack(ser_immut[i][:tavg], float(ser_immut[i][:prec]); 
-#     keys = (:tavg, :prec)) for i = 1:12] 
-# ser = GeoSeries(ser, (Ti(dates),))
-# for i in 1:12    
-#     ser[i][:prec] .= map(x -> x < 0 ? 0.0 : x, ser[i][:prec])
+# ################# END MAIN LOOP #######################
 # end
-# plot(ser[3][:prec])
-# plot(ser[DateTime(2001, 4, 1)][:tavg], clim = (0, 40))
+# end

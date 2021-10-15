@@ -1,4 +1,4 @@
-# ENV["RASTERDATASOURCES_PATH"] = "C:/RasterData"
+ENV["RASTERDATASOURCES_PATH"] = "C:/RasterData"
 using Interpolations, TimeInterpolatedGeoData, RasterDataSources, Test, Dates, GeoData
 using Plots, Unitful, GrowthMaps
 # load GrowthMaps and other related packages
@@ -43,6 +43,7 @@ ser = map(GeoSeries(WorldClim{Climate}, layerkeys; month=1:12, res="10m")) do x
     view(x, Band(1))
 end
 ser = DimensionalData.set(ser, :month => Ti(DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)))
+# ser = GeoData.aggregate(Center(), ser, 10; keys=(:tmin, :tmax))
 
 # We use a DimensionalData dim instead of a vector of dates because a
 # Dim can have a step size with irregular spaced data - here 1 Hour.
@@ -52,14 +53,14 @@ dates = [d + h for d in index(ser, Ti) for h in Hour.(0:23) ]
 function plot_interpolation(interpolator)
     mmseries = meanday_minmaxseries(ser, dates; step=Hour(1), mm_interpolators=(temp=interpolator,))
     t = 1:(24*12)
-    tT = [mmseries[i][:temp][1861, 720, 1] for i = t]
+    tT = [mmseries[i][:temp][186, 72, 1] for i = t]
     pl = plot(t,  tT; ylims=(0, 40))
     # We need to add 1 for the first hour to be index 1
     # Then add the hour offset we using in the interpolator
     tmintimes = (0:11)*24 .+1 .+5
     tmaxtimes = (0:11)*24 .+1 .+14
-    plot!(pl, tmintimes, [ser[i][(:tmin)][1861, 720, 1] for i = 1:12])
-    plot!(pl, tmaxtimes, [ser[i][(:tmax)][1861, 720, 1] for i = 1:12])
+    plot!(pl, tmintimes, [ser[i][(:tmin)][186, 72, 1] for i = 1:12])
+    plot!(pl, tmaxtimes, [ser[i][(:tmax)][186, 72, 1] for i = 1:12])
 end
 # Create Min Max interpolator 
 # times is a tuple specifying the time of tmin and tmax
