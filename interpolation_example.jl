@@ -1,19 +1,16 @@
-# ENV["RASTERDATASOURCES_PATH"] = "\MyDataLocation"
+ENV["RASTERDATASOURCES_PATH"] = "C:/RasterData"
 using Interpolations, TimeInterpolatedGeoData, RasterDataSources, Test, Dates, GeoData
-using Plots
+using Plots, Unitful, GrowthMaps
+# load GrowthMaps and other related packages
+using GrowthMaps, Unitful, UnitfulRecipes, Dates, Setfield, Statistics
+using GeoData, ModelParameters
+using Unitful: °C, K, cal, mol
+# using HDF5 # for SMAP
 
 # download montly mean tmax and tmin data from WorldClim at the 10 m resoltution
 months = 1:12
-layers = (:tmin, :tmax)
-getraster(WorldClim{Climate}, layers; res = "10m", month=1:12)
-ser_immut = series(WorldClim{Climate}, layers; res="10m")
-
-
-# load GrowthMaps and other related packages
-using GrowthMaps, Unitful, UnitfulRecipes, Dates, Setfield, Statistics
-using GeoData, ArchGDAL, NCDatasets, ModelParameters
-using Unitful: °C, K, cal, mol
-# using HDF5 # for SMAP
+layerkeys = (:tmin, :tmax)
+ser_immut = GeoSeries(WorldClim{Climate}, layerkeys; month=1:12, res="10m")
 
 # Set SchoolfieldIntrinsicGrowth model parameters including fields for units and bounds for fitting
 ψ_EA =12.254cal/K/mol
@@ -41,27 +38,50 @@ temprange = K.(temprangeC)
 dev = (x -> GrowthMaps.rate(stripparams(growthresponse), x)).(temprange)
 pl = plot(temprangeC, dev; label=false, ylabel="growth rate (1/d)", xlab = "temperature")
 
-
 # make two band GeoSeries with Time = 1:12 for tmin and tmax
-ser = series(WorldClim{Climate}, layers; res="10m")
-ser = DimensionalData.set(ser, Ti=(DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)))
+ser = map(GeoSeries(WorldClim{Climate}, layerkeys; month=1:12, res="10m")) do x
+    view(x, Band(1))
+end
+ser = DimensionalData.set(ser, :month => Ti(DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)))
+# ser = GeoData.aggregate(Center(), ser, 10; keys=(:tmin, :tmax))
 
 # We use a DimensionalData dim instead of a vector of dates because a
 # Dim can have a step size with irregular spaced data - here 1 Hour.
-dates = Ti(vec([d + h for h in Hour.(0:23), d in index(ser, Ti)]);
-    mode=Sampled(Ordered(), Regular(Hour(1)), Intervals())
-)
+dates = [d + h for d in index(ser, Ti) for h in Hour.(0:23) ]
 
-# Create Min Max specification for intorpolation
+# test interpolation visually
+function plot_interpolation(interpolator)
+    mmseries = meanday_minmaxseries(ser, dates; step=Hour(1), mm_interpolators=(temp=interpolator,))
+    t = 1:(24*12)
+    tT = [mmseries[i][:temp][186, 72, 1] for i = t]
+    pl = plot(t,  tT; ylims=(0, 40))
+    # We need to add 1 for the first hour to be index 1
+    # Then add the hour offset we using in the interpolator
+    tmintimes = (0:11)*24 .+1 .+5
+    tmaxtimes = (0:11)*24 .+1 .+14
+    plot!(pl, tmintimes, [ser[i][(:tmin)][186, 72, 1] for i = 1:12])
+    plot!(pl, tmaxtimes, [ser[i][(:tmax)][186, 72, 1] for i = 1:12])
+end
+# Create Min Max interpolator 
 # times is a tuple specifying the time of tmin and tmax
-# interpmode specifies the interporator
-tempspec = MinMaxSpec((tmin=Hour(5), tmax=Hour(14)), BSpline(Linear()))
+linear_temp_interpolator = MinMaxInterpolator((tmin=Hour(5), tmax=Hour(14)), BSpline(Linear()))
+cos_temp_interpolator = MinMaxInterpolator((tmin=Hour(5), tmax=Hour(14)), BSpline(Cosine()))
+hyptan_temp_interpolator = MinMaxInterpolator((tmin=Hour(5), tmax=Hour(14)), BSpline(HypTan()))
+plot_interpolation(linear_temp_interpolator)
+plot_interpolation(cos_temp_interpolator)
+plot_interpolation(hyptan_temp_interpolator)
+# Using a parameter for hyptan
+hyp = HypTan{1.0}()
+hyptan2_temp_interpolator = MinMaxInterpolator((tmin=Hour(5), tmax=Hour(14)), BSpline(hyp))
+plot_interpolation(hyptan2_temp_interpolator)
 
-#  create an interpolated GeoSeries using the original stacked series, the new dates to interpolate ,
-mmseries = meandayminmaxseries(ser, dates, (), (temp=tempspec,))
-mmseries[DateTime(2001, 1, 1, 6)][:temp]
-mmseries[DateTime(2001, 4, 1, 1)][:temp]
-mmseries[DateTime(2001, 11, 1, 2)][:temp] |> plot
+tempinterpolator = linear_temp_interpolator
+
+# create an interpolated GeoSeries using the original stacked series, the new dates to interpolate ,
+mmseries = meanday_minmaxseries(ser, dates; step=Hour(1), mm_interpolators=(temp=tempinterpolator,))
+
+
+mmseries[At(DateTime(2001, 11, 1, 2))][:temp] |> plot
 
 # update growth response to link with the interpolated key
 growthresponse = Layer(:temp, °C, growthmodel)
@@ -71,4 +91,4 @@ growthrates = mapgrowth(stripparams(growthresponse);
     series=mmseries,
     tspan=DateTime(2001, 1, 1):Month(1):DateTime(2001, 12, 1)
 )
-plot(growthrates[Ti(1)], clim=(0, 0.15))
+plot(growthrates[Ti(1:3:12), Band(1)], clim=(0, 0.15))
